@@ -1,7 +1,12 @@
+import os
 from uuid import uuid4
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel, HttpUrl
+
+load_dotenv() 
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 app = FastAPI()
 
