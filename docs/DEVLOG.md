@@ -30,3 +30,15 @@ Next Session:
     1) wire POST /events to actually write a row (session + get_session dependency) 
     2) GET /events/{id} to read it back 
     3) see a real row appear in pgAdmin
+
+## Session 4
+Built: The core loop, end to end. POST /events now persists a real row (async session + get_session dependency) and returns via a Pydantic response model (EventOut). GET /events/{id} reads it back with a 404 path. Celery + Redis wired; sync DB session added alongside the async one for the worker. Wrote the delivery task: loads the event, POSTs to target_url with httpx (10s timeout), logs a DeliveryAttempt (success or exception), bumps attempts_count, marks success on 2xx. First real end-to-end delivery to webhook.site: worker pulled the job, delivered, got 200, DB updated. milestone (core loop live) hit.
+Broke: 
+    (1) Ruff B008 on Depends in defaults - switched to Annotated[AsyncSession, Depends(...)] 
+    (2) editor auto-imported `from sqlalchemy import event`, shadowing the local variable -> deleted 
+    (3) had to remember str(event.id) when enqueuing so Celery can JSON-serialize the arg.
+Learned: response_model is the serializer AND an output filter - return the ORM object, FastAPI shapes it. Celery task args must be JSON-serializable (pass ids, not objects). attempt_number reads the counter, attempts_count += 1 writes it - read/write pair. Non-2xx should stay pending for retry, not be marked failed.
+Next Session: 
+    1) retry + exponential backoff (1m/5m/15m capped, max 5) with next_attempt_at 
+    2) dead-letter after max_retries 
+    3) reschedule failures instead of leaving them pending

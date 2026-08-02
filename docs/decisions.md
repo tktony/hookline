@@ -35,3 +35,19 @@ Why: DATABASE_URL uses host "db", which only resolves inside the Docker network.
 ## Postgres host port moved to 5433 (local dev only)
 Chose: map host 5433 -> container 5432 for pgAdmin. Rejected: default 5432:5432.
 Why: another process on the host already held 5432, so pgAdmin hit the wrong Postgres and auth failed. 5433 sidesteps the clash. Note: the app still connects internally via db:5432 - unaffected. In production the host port mapping is removed entirely; the DB is never exposed to the host.
+
+## Sync worker, async API
+Chose: async SQLAlchemy for the API, a separate sync engine/session for the Celery worker (worker task is a plain sync function with httpx.Client)
+Why: Celery's async support is awkward and buys nothing at a few hundred deliveries/min. FastAPI gives async for free on the request path where it matters. Two connection styles in one project - async for web, sync for background work - is simpler to reason about and debug than forcing async into Celery.
+
+## Pass ids to tasks, not objects
+Chose: enqueue with deliver_event.delay(str(event.id)) - the worker re-loads the event from the id. Rejected: passing the ORM object or a raw UUID.
+Why: Celery serializes task arguments to JSON through Redis. ORM objects and UUIDs aren't JSON-serializable. Passing a string id survives the broker boundary; the worker loads a fresh object in its own session. Also avoids stale-object issues across processes.
+
+## Redis carries the job, Postgres carries the data
+Chose: Postgres stores the event row (source of truth); Redis only carries a lightweight "deliver event X" message. Rejected: putting delivery state in Redis.
+Why: durability lives in Postgres (survives everything); the queue is transient. If Redis is wiped, pending events can be recovered by querying Postgres.
+
+## Happy path first, retry left open
+Chose: on 2xx mark success; on non-2xx or exception, log the attempt but leave status untouched (pending). Rejected: marking non-2xx as "failed" immediately.
+Why: a 500 or timeout is exactly what should be retried, not given up on. Marking "failed" would kill retryable events. Leaving status pending is the clean seam where backoff/retry logic (next session) plugs in.

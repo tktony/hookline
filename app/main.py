@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine, get_session
 from app.models import Event
+from app.worker import deliver_event
 
 DEV_API_KEY_ID = UUID("14fb582f-5a23-4c76-8378-7890bf3789ca")  # TODO: replace with real key from auth
 
@@ -51,6 +52,7 @@ async def create_event(webhook: WebhookIn, session: Annotated[AsyncSession, Depe
     session.add(event)
     await session.commit()
     await session.refresh(event)
+    deliver_event.delay(str(event.id))
     return event
 
 @app.get("/api/v1/events/{id}", response_model=EventOut)
