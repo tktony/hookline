@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine, get_session
@@ -52,7 +52,7 @@ async def create_event(webhook: WebhookIn, session: Annotated[AsyncSession, Depe
     session.add(event)
     await session.commit()
     await session.refresh(event)
-    deliver_event.delay(str(event.id))
+    deliver_event.delay(str(event.id)) # Celery
     return event
 
 @app.get("/api/v1/events/{id}", response_model=EventOut)
@@ -62,3 +62,11 @@ async def get_event(id: UUID, session: Annotated[AsyncSession, Depends(get_sessi
         raise HTTPException(status_code=404, detail="event not found")
     return event
 
+# TODO: Pagination
+@app.get("/api/v1/events", response_model=list[EventOut])
+async def list_events(session: Annotated[AsyncSession, Depends(get_session)], status: str | None = None):
+    stmt = select(Event)
+    if status is not None:
+        stmt = stmt.where(Event.status == status)
+    result = await session.execute(stmt)
+    return result.scalars().all()

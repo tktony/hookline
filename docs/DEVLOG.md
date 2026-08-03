@@ -1,5 +1,4 @@
 ## Session 1
-
 Built: FastAPI skeleton. /health, POST /api/v1/events returns 202 with a fake id. Config loaded from .env via python-dotenv.
 Broke: nothing yet - id is invented and thrown away, no db behind it.
 Learned: status_code lives on the decorator (FastAPI builds /docs at import time). Fail loud on missing config: os.environ["X"] over .get() so a missing DATABASE_URL crashes at startup, not mid-query.
@@ -9,7 +8,6 @@ Next Session:
     3) prove the api container can reach the db (SELECT 1 in the logs)
 
 ## Session 2 
-
 Built: Dockerfile (slim, non-root, layer-cached deps) + .dockerignore. docker-compose.yml with api + db + redis on a shared network. First deliberate volume (pgdata) for Postgres - confirmed data survives down/up.
 Broke: pip install failed - PowerShell's > wrote requirements.txt as UTF-16 (null bytes). Fixed with Out-File -Encoding utf8.
 Learned: -p / ports map laptop:container. uvicorn binds 0.0.0.0 so forwarded traffic is accepted. Compose services resolve each other by service name - 'db' is a real hostname on the network. Software lives in the container, data lives in the volume.
@@ -42,3 +40,15 @@ Next Session:
     1) retry + exponential backoff (1m/5m/15m capped, max 5) with next_attempt_at 
     2) dead-letter after max_retries 
     3) reschedule failures instead of leaving them pending
+
+## Session 5
+Built: The full retry engine, autonomous. deliver_event now has the failure path: on non-2xx/exception, either mark dead (attempts_count >= max_retries) or schedule a retry (exponential backoff into next_attempt_at, status retrying). Wrote poll_retries: queries retrying+due events (uses the composite index), claims them queued (two-loop: commit claim before enqueue), re-enqueues deliver_event. Wired Celery Beat (separate service) to run poll every 60s. Added GET /api/v1/events?status= list endpoint. Full loop verified end to end against httpbin/500: beat -> poll -> re-enqueue -> worker -> re-deliver, attempts climbing, delivery_attempts logging each try, all with no manual action.
+Broke/caught: 
+    (1) len-1 vs len(BACKOFF_SCHEDULE)-1 index bug. 
+    (2) editor was shadowing again earlier - watched imports. 
+    (3) found a real design gap: a claimed "queued" event lost before delivery gets orphaned (poll only scans retrying) - documented as a future fix, it's what the demo will prove.
+Learned: the ORM object IS the row - changing event.x and committing = UPDATE; session.add = INSERT. DeliveryAttempt is the append-only audit log (the product's actual value); None-pattern encodes "bad response" vs "no response". Beat schedules, worker executes, Redis is the belt between. Claim-before-enqueue needs the commit first to be race-safe.
+Next Session: 
+    1) deploy walking skeleton to Hetzner VPS, Caddy HTTPS, compose on the server 
+    2) GitHub Actions deploy on push to main 
+    3) run migrations on the server, confirm the live loop works at the domain
