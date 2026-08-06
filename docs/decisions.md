@@ -86,3 +86,29 @@ If a claimed (queued) event is lost before delivery (Redis down / worker crash),
 ### GET /events list endpoint (TODO: Add Pagination)
 Chose: GET /api/v1/events with optional ?status= filter for inspecting events (e.g. dead). Rejected: per-status endpoints.
 Why: one filtered list endpoint is simpler and covers debugging any status. Returns all matches with no limit - pagination is a noted item, fine for the current small dataset. Separate from Prometheus, which tracks aggregate counts, not individual rows.
+
+## Session 6
+
+### Deploy target: single VPS + docker compose, not managed/registry-based
+Chose: one Server, git clone on the server, docker compose up. Rejected: build-image-in-CI + push-to-registry + pull (Approach B), and managed platforms.
+Why: Registry-based CI/CD is the "proper" pattern for teams but adds a registry, image tagging, and more moving parts for zero benefit at this scale. Single-VPS compose does the job. 
+
+### Server hardening before anything runs
+Chose: non-root sudo user, ufw allowing only 22/80/443, root SSH login disabled, tested the new user before locking root out. Rejected: running as root, leaving all ports open.
+Why: the box is public the moment it exists. Least privilege limits blast radius if compromised; the firewall means DB/Redis are unreachable externally even though compose maps their host ports; testing the new user before disabling root avoids locking myself out.
+
+### Caddy for reverse proxy + automatic HTTPS
+Chose: Caddy in front of the API, auto TLS via Let's Encrypt. Rejected: nginx + manual certbot; exposing the API directly on 8000.
+Why: Caddy fetches and auto-renews certificates with ~3 lines of config - removes the most error-prone part of production HTTPS (cert renewal). API no longer exposes 8000 to the host; all external traffic enters through Caddy on 443, everything else internal. Port 80 stays open for the ACME challenge and HTTP->HTTPS redirect. Cert volume (caddy_data) persists certs across restarts to avoid Let's Encrypt rate limits.
+
+### Secrets from environment, never in the repo or compose
+Chose: POSTGRES_PASSWORD (and REDIS_URL) read via ${VAR} from .env, which is gitignored; server .env has a strong openssl-generated password. Rejected: hardcoding "secret" in docker-compose.yml.
+Why: a hardcoded password in a public repo is a real vulnerability. ${VAR}-from-.env keeps the compose file identical across local and prod while the actual secret differs per environment and never enters git. Same variable names, different values.
+
+### Dedicated deploy key for CI/CD, not the personal key
+Chose: a separate passphrase-less ed25519 key just for GitHub Actions, public half in the server's authorized_keys, private half in GitHub encrypted secrets. Rejected: reusing my personal SSH key.
+Why: least privilege and revocability. If the CI key leaks, remove one line from authorized_keys and rotate - my personal access is untouched. Passphrase-less because Actions can't type one interactively; safe because it's dedicated and revocable.
+
+### Auto-deploy: SSH-and-pull on push to main
+Chose: GitHub Actions SSHes into the server and runs git pull + docker compose up -d --build + alembic upgrade head. Rejected: manual SSH deploys; registry-based image delivery.
+Why: automates the exact manual steps, so "how does deploy work" has a simple honest answer. Running migrations every deploy is safe (no-op when nothing's pending) and means schema changes ship automatically. Rebuild-every-deploy is slightly slow but simple; optimizing it isn't worth the complexity yet.

@@ -49,6 +49,18 @@ Broke/caught:
     (3) found a real design gap: a claimed "queued" event lost before delivery gets orphaned (poll only scans retrying) - documented as a future fix, it's what the demo will prove.
 Learned: the ORM object IS the row - changing event.x and committing = UPDATE; session.add = INSERT. DeliveryAttempt is the append-only audit log (the product's actual value); None-pattern encodes "bad response" vs "no response". Beat schedules, worker executes, Redis is the belt between. Claim-before-enqueue needs the commit first to be race-safe.
 Next Session: 
-    1) deploy walking skeleton to Hetzner VPS, Caddy HTTPS, compose on the server 
+    1) deploy walking skeleton to a VPS, Caddy HTTPS, compose on the server 
     2) GitHub Actions deploy on push to main 
     3) run migrations on the server, confirm the live loop works at the domain
+
+## Session 6
+Built: Full production deployment. Provisioned a VPS (Ubuntu), hardened it (non-root sudo user, ufw 22/80/443, root SSH disabled). Deployed the whole stack via git clone + docker compose on the server; ran migrations and seeded the placeholder key against a fresh volume with a strong generated password. Bought tryhookline.dev, pointed A records at the server (DNS-only). Added Caddy as reverse proxy - automatic Let's Encrypt HTTPS, obtained a real cert, API no longer exposes 8000. Set up GitHub Actions to auto-deploy on push to main via a dedicated deploy key (SSH-and-pull). Verified end to end: posted a live event over HTTPS, watched it deliver. Live at https://tryhookline.dev.
+Broke/caught: 
+    (1) password auth failures twice = the "POSTGRES_PASSWORD only applies on fresh volume init" again; fixed with down -v locally, fresh volume on server. 
+    (2) nuked local Docker mid-session, rebuilt from repo + .env in four commands. 
+    (3) local worker spamming "relation events does not exist" - missing local migration after the volume wipe.
+Learned: DNS A record maps name -> IP, registrar/DNS-host/server-host are separate roles. Caddy needs port 80 for the ACME challenge and the HTTP->HTTPS redirect. Firewall protects DB/Redis even with host ports mapped. Two environments now (laptop = dev, server = prod) - commands run wherever the terminal is; always check the prompt. Dedicated revocable deploy key > personal key for automation. .env is a local convenience, not a deploy mechanism - prod secrets come from the server's own .env.
+Next session: 
+    1) observability - Prometheus metrics (deliveries by status, attempt duration, queue depth) + Grafana dashboard 
+    2) Sentry for error tracking 
+    3) nightly pg_dump backup + UptimeRobot on /health
