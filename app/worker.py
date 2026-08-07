@@ -17,6 +17,7 @@ BACKOFF_SCHEDULE = [
     1800,   # 30 minutes
     3600,   # 60 minutes
 ]
+MAX_RESPONSE_BODY = 10_000  
 
 
 
@@ -64,7 +65,12 @@ def deliver_event(event_id: str):
             with httpx.Client(timeout=10.0) as client:
                 response = client.post(event.target_url, json=event.payload)
             status_code = response.status_code
-            body = response.text
+            text = response.text
+            if len(text) > MAX_RESPONSE_BODY:
+                body = text[:MAX_RESPONSE_BODY] + "...[truncated]"
+            else:
+                body = text
+
         except httpx.RequestError as exc:
             error = str(exc)
 

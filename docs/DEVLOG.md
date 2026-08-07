@@ -61,6 +61,24 @@ Broke/caught:
     (3) local worker spamming "relation events does not exist" - missing local migration after the volume wipe.
 Learned: DNS A record maps name -> IP, registrar/DNS-host/server-host are separate roles. Caddy needs port 80 for the ACME challenge and the HTTP->HTTPS redirect. Firewall protects DB/Redis even with host ports mapped. Two environments now (laptop = dev, server = prod) - commands run wherever the terminal is; always check the prompt. Dedicated revocable deploy key > personal key for automation. .env is a local convenience, not a deploy mechanism - prod secrets come from the server's own .env.
 Next session: 
-    1) observability - Prometheus metrics (deliveries by status, attempt duration, queue depth) + Grafana dashboard 
-    2) Sentry for error tracking 
-    3) nightly pg_dump backup + UptimeRobot on /health
+    1) stuck-in-queue fix
+    2) SSRF Guard 
+    3) Harden delivery path (response body truncation + request timeout)
+    4) API Key Auth mechanism
+
+## Session 7
+Built: The full security/hardening pass. 
+    (1) stuck-in-queued fixed - poll now rescues claims older than a 5-min grace window, stamping claim time in next_attempt_at; retry loop is now crash-safe 
+    (2) SSRF guard - resolves target hostname to IP, rejects private/internal ranges, fails closed, marks blocked events dead. 
+    (3) Response-body truncation at 10KB and incoming payload cap at 256KB. 
+    (4) Confirmed and documented the 10s delivery timeout's purpose. 
+    (5) API key auth end to end: app/cli.py mints keys (secrets + sha256 hash, raw key shown once), require_api_key dependency checks the Authorization: Bearer header, POST /events now requires a valid key and stamps the real key id - DEV_API_KEY_ID placeholder deleted. Verified: blocked URLs die, oversized payloads 422, unauthenticated POST rejected, authenticated POST works.
+Broke/caught: 
+    (1) forgot to try/except socket.gethostbyname - would crash on unresolvable domains; fixed to fail closed. 
+    (2) GitHub Actions stopped triggering after a couple runs (idk why) - deployed SSRF manually via SSH.
+    (3) payload measures bytes but response truncation measures chars - intentional (precise reject-threshold vs approximate debug snippet, and char-slicing avoids splitting UTF-8).
+Learned: check resolved IPs not hostname strings for SSRF (string matching is trivially bypassed). Fail closed on security checks. Fast sha256 is right for high-entropy keys; bcrypt is for low-entropy passwords. Keys shown once because only the hash is stored - unrecoverable by design. Timeout protects the worker pool from hanging targets. The CLI is an operator tool run against a live instance (docker compose exec), not something consumers run - consumers use the key over HTTP.
+Next session: 
+    1) deploy the auth work to the server (mint a real server-side key via the CLI, retire the placeholder row) 
+    2) observability - Prometheus metrics + Grafana dashboard 
+    3) Sentry, nightly pg_dump backup, UptimeRobot on /health. (Backlog: per-IP rate limiting, idempotency key.)

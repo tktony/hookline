@@ -112,3 +112,29 @@ Why: least privilege and revocability. If the CI key leaks, remove one line from
 ### Auto-deploy: SSH-and-pull on push to main
 Chose: GitHub Actions SSHes into the server and runs git pull + docker compose up -d --build + alembic upgrade head. Rejected: manual SSH deploys; registry-based image delivery.
 Why: automates the exact manual steps, so "how does deploy work" has a simple honest answer. Running migrations every deploy is safe (no-op when nothing's pending) and means schema changes ship automatically. Rebuild-every-deploy is slightly slow but simple; optimizing it isn't worth the complexity yet.
+
+## Session 7
+
+### Rescue stuck "queued" events after a 5-minute grace window
+Chose: poll also picks up events stuck in "queued" whose claim timestamp is older than 5 minutes. Rejected: only ever scanning "retrying" (leaves lost claims orphaned).
+Why: when poll claims a due retry (retrying -> queued) and enqueues it, a worker crash or Redis flush before delivery would strand the event in "queued" forever, since poll only looked at "retrying". Stamping next_attempt_at at claim time lets poll detect stale claims and re-queue them. The grace window is 5 minutes because it must be safely longer than worst-case in-flight time (10s request timeout + up to 60s poll interval) so a legitimately in-progress delivery is never rescued out from under a working worker; 5 min is a comfortable margin over ~70s. This is what backs the "nothing is lost" guarantee 
+
+### SSRF guard: reject targets resolving to internal addresses
+Chose: resolve the target hostname to an IP and reject private/loopback/link-local/reserved/multicast ranges before the worker makes the request; fail closed on resolution failure; mark blocked events dead (no retry). Rejected: string-matching hostnames like "localhost".
+Why: a public webhook sender is an SSRF machine - an attacker can point it at cloud metadata (169.254.169.254), internal services, or private hosts, and read the response back via the attempt log. Checking the resolved IP (not the string) defeats bypasses like domains that resolve to internal IPs, octal/decimal encodings, etc. Fail closed because a security check must reject on uncertainty. Blocked = dead because the URL will never become safe on retry. Known limitation: DNS rebinding (httpx re-resolves at request time); fully closing it needs pinning the resolved IP into the request - noted as future work.
+
+### sha256 for API keys (not bcrypt)
+Chose: store sha256 hashes of API keys. Rejected: bcrypt/argon2.
+Why: slow hashes (bcrypt) exist to resist brute-forcing low-entropy human passwords. API keys are already high-entropy random strings (secrets.token_urlsafe(32)) - a 256-bit random space can't be brute-forced regardless of hash speed - so a fast sha256 is appropriate and standard. Keys are shown once because only the hash is stored; the raw key is unrecoverable by design, so a DB breach exposes no usable credentials.
+
+### Auth on POST only, GET endpoints left open
+Chose: require an API key on POST /events; leave GET /events and GET /events/{id} open. Rejected: auth on everything.
+Why: POST creates work and consumes resources - it's the sensitive operation. Reads of event status are low-risk, and the public demo page polls GET /events/{id} to show live delivery status; requiring a key there would mean embedding a secret in public browser JS. Auth the write, leave reads open
+
+### Bounded I/O in both directions
+Chose: reject incoming payloads over 256KB at validation (bytes, exact); truncate stored response bodies at 10,000 chars with a marker. Rejected: unbounded payload/response storage.
+Why: prevents resource exhaustion from oversized data either way. Payload cap measures bytes because it's a precise rejection threshold (true storage/bandwidth cost). Response truncation measures characters because it's an approximate debug snippet on a Text column, and slicing a decoded str never splits a multi-byte UTF-8 character (byte-slicing could). Different precision for different jobs.
+
+### 10-second delivery timeout
+Chose: httpx timeout=10.0 on delivery requests. Rejected: no timeout.
+Why: without a timeout, a target that accepts the connection then hangs would block a worker forever; enough hanging targets exhaust the worker pool and halt all deliveries. The timeout guarantees no single target ties up a worker beyond 10s - the sender's throughput is protected from receiver misbehavior. Failed requests are caught, logged, and retried.
