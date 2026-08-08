@@ -5,16 +5,22 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
 from pydantic import BaseModel, HttpUrl, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine, get_session
 from app.models import ApiKey, Event
 from app.worker import deliver_event
 
+events_by_status = Gauge(
+    "hookline_events_by_status",
+    "Number of events grouped by status",
+    ["status"],
+)
 MAX_PAYLOAD_BYTES = 256_000  # 256 KB
 bearer_scheme = HTTPBearer()
 
@@ -40,6 +46,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/metrics")
+async def metrics(session: Annotated[AsyncSession, Depends(get_session)]):
+    # query counts grouped by status
+    stmt = select(Event.status, func.count(Event.id)).group_by(Event.status)
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    # clear old values and set fresh ones
+    events_by_status.clear()
+    for status, count in rows:
+        events_by_status.labels(status=status).set(count)
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health")
