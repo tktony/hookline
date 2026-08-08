@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <title>hookline — webhook delivery engine</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -119,24 +120,108 @@
   .mono-dim { color: var(--muted); }
   .err { color: var(--error); }
 
+  /* logo */
+  .logo { width: 28px; height: 28px; border-radius: 6px; }
+  
   footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 20px; }
   footer a { color: var(--accent-bright); text-decoration: none; }
 </style>
+
+
+<style>
+  .links { display: flex; gap: 18px; margin-top: 16px; }
+  .links a { color: var(--accent-bright); text-decoration: none; font-size: 13px; border-bottom: 1px solid var(--border); padding-bottom: 1px; }
+  .links a:hover { border-color: var(--accent-bright); }
+ 
+  .explain p { color: var(--text); font-size: 13.5px; margin-bottom: 12px; max-width: 680px; }
+  .explain p:last-child { margin-bottom: 0; }
+  .hl { color: var(--accent-bright); }
+ 
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+  .step { display: flex; gap: 12px; align-items: baseline; font-size: 13px; }
+  .step .n {
+    flex-shrink: 0; width: 22px; height: 22px; border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--accent-bright); font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .step b { color: var(--bright); }
+  .step code { color: var(--accent-bright); background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+ 
+  .features { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .feat { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .feat b { color: var(--bright); font-size: 13px; }
+  .feat span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  @media (max-width: 640px) { .features { grid-template-columns: 1fr; } }
+</style>
+
+
 </head>
 <body>
 <div class="wrap">
 
   <header>
     <div class="brand">
+      <img src="/logo.svg" alt="hookline" class="logo">
       <h1>hookline</h1>
       <span class="tag">webhook delivery engine</span>
     </div>
     <p class="sub">
-      A production-grade webhook delivery service: durable queue, exponential-backoff retries,
-      dead-lettering, and a full audit log of every attempt. Submit an event below and watch it
-      move through the real pipeline. No account needed.
+      A production-grade service that delivers webhooks reliably — durable queue, exponential-backoff retries, dead-lettering, 
+      and a full audit log of every attempt. This page runs against the live system: submit an event and watch it move through
+      the real pipeline.
     </p>
+    <div class="links">
+      <a href="https://github.com/tktony/hookline" target="_blank">GitHub ↗</a>
+      <a href="https://www.linkedin.com/in/temurbek-kadamov/" target="_blank">LinkedIn ↗</a>
+      <a href="https://github.com/tktony/hookline#readme" target="_blank">Architecture ↗</a>
+    </div>
   </header>
+
+
+
+  <section>
+  <div class="label">What it does</div>
+  <div class="explain">
+    <p>
+      When one service needs to notify another that something happened — a payment cleared,
+      a job finished — it sends a <span class="hl">webhook</span>: an HTTP POST to a URL the
+      receiver controls. The hard part isn't sending it once; it's sending it
+      <span class="hl">reliably</span> when the receiver is down, slow, or flaky.
+    </p>
+    <p>
+      hookline takes ownership of that problem. You hand it an event; it guarantees the
+      delivery attempt, retries with backing-off delays if the target fails, gives up
+      cleanly after a bounded number of tries, and records every single attempt so you can
+      prove what happened.
+    </p>
+  </div>
+ 
+  <div class="label" style="margin-top:24px">How the pipeline works</div>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><div><b>submit</b> — an event (target URL + JSON payload) is POSTed to the API and validated.</div></div>
+    <div class="step"><span class="n">2</span><div><b>api</b> — the target is checked against an SSRF guard, the event is written to Postgres as <code>pending</code>, and a job is queued.</div></div>
+    <div class="step"><span class="n">3</span><div><b>queue</b> — the job sits in Redis; the API returns <code>202 Accepted</code> immediately, without waiting for delivery.</div></div>
+    <div class="step"><span class="n">4</span><div><b>worker</b> — a background worker picks up the job and makes the HTTP POST to the target, with a timeout.</div></div>
+    <div class="step"><span class="n">5</span><div><b>target</b> — on a 2xx the event is marked <code>success</code>; on failure it's scheduled for retry with exponential backoff.</div></div>
+    <div class="step"><span class="n">6</span><div><b>result</b> — after too many failures the event is <code>dead-lettered</code>. Every attempt is logged either way.</div></div>
+  </div>
+  </section>
+
+
+
+  <section>
+    <div class="label">Built for production</div>
+    <div class="features">
+      <div class="feat"><b>At-least-once delivery</b><span>Durable queue backed by Postgres — retries survive a broker or worker restart.</span></div>
+      <div class="feat"><b>Exponential backoff</b><span>Failed deliveries retry on a widening schedule, capped, then dead-letter.</span></div>
+      <div class="feat"><b>Full audit log</b><span>Every attempt records status code, response, error, and timing.</span></div>
+      <div class="feat"><b>SSRF protection</b><span>Targets resolving to private/internal addresses are rejected before any request.</span></div>
+      <div class="feat"><b>API-key auth + rate limiting</b><span>Hashed keys; per-IP limits protect the public demo.</span></div>
+      <div class="feat"><b>Observability</b><span>Prometheus metrics and Grafana dashboards over the live system.</span></div>
+    </div>
+  </section>
+
+
 
   <section>
     <div class="label">Submit an event</div>
