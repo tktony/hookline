@@ -138,3 +138,25 @@ Why: prevents resource exhaustion from oversized data either way. Payload cap me
 ### 10-second delivery timeout
 Chose: httpx timeout=10.0 on delivery requests. Rejected: no timeout.
 Why: without a timeout, a target that accepts the connection then hangs would block a worker forever; enough hanging targets exhaust the worker pool and halt all deliveries. The timeout guarantees no single target ties up a worker beyond 10s - the sender's throughput is protected from receiver misbehavior. Failed requests are caught, logged, and retried.
+
+## Session 8
+
+### restart: unless-stopped on all services
+Chose: restart: unless-stopped on every service
+Why: the worker crashed on a transient Redis blip and stayed down for hours, silently halting all deliveries. unless-stopped self-heals from crashes and survives a VPS reboot (whole stack comes back automatically), while still respecting a deliberate docker compose down.
+
+### Metrics computed at scrape time from Postgres, not live in-process counters
+Chose: /metrics endpoint queries Postgres (events grouped by status) each scrape. Rejected: live Counter objects incremented in the code.
+Why: deliveries happen in the worker, a separate process from the API that serves /metrics - live counters would need cross-process metric sharing (multiprocess mode), added complexity. Since Postgres is the source of truth, the API can report the whole system's state by querying it. Sidesteps the multiprocess problem entirely and stays accurate.
+
+### Grafana bound to localhost, viewed via SSH tunnel
+Chose: Grafana on 127.0.0.1:3000 (server-local only), reached from my laptop through an SSH tunnel. Prometheus not exposed at all. Rejected: exposing Grafana publicly.
+Why: a public Grafana (especially with weak/default creds) is an exposure. Binding to localhost means it's only reachable on the server; the SSH tunnel gives me secure access without opening a port to the internet. Prometheus is internal-only - only Grafana needs it.
+
+### Nightly pg_dump backup, on-server, 7-day retention
+Chose: cron runs pg_dump nightly, gzipped, keeps the last 7. Rejected: off-site backup
+Why: a production DB with no backup is a risk - the pgdata volume is a single point of failure. Nightly local dumps are a reasonable baseline. Known limitation: backups live on the same server, so a full server loss loses them too; a production setup would ship them off-site (object storage). Noted as future work.
+
+### Sentry deliberately not wired
+Chose: skip Sentry error tracking; note it as future work
+Why: Sentry earns its place with real users generating errors to triage. This is a zero-user demo; errors are visible in logs and I'm the only operator. Knowing what production needs at a given scale and not over-building. UptimeRobot was kept because it protects the goal (a live link staying reachable).

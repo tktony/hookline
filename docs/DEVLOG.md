@@ -82,3 +82,21 @@ Next session:
     1) deploy the auth work to the server (mint a real server-side key via the CLI, retire the placeholder row) 
     2) observability - Prometheus metrics + Grafana dashboard 
     3) Sentry, nightly pg_dump backup, UptimeRobot on /health. (Backlog: per-IP rate limiting, idempotency key.)
+
+## Session 8
+Built: Full observability + operational hardening, deployed to the server. 
+    (1) restart: unless-stopped on all services after the worker crashed on a Redis blip and stayed down. 
+    (2) /metrics endpoint - prometheus-client Gauge computed from a Postgres GROUP BY on event status (scrape-time query, multiprocess-safe). 
+    (3) Prometheus (internal) scraping /metrics every 15s + Grafana (localhost-only, SSH-tunnelled) with two panels: events-by-status and API memory; dashboard JSON exported to grafana/dashboards/. 
+    (4) Nightly pg_dump backup via cron, gzipped, 7-day retention. 
+    (5) UptimeRobot on https://tryhookline.dev/health. Deployed auth work from session 7 and minted a real server-side API key. Skipped Sentry.
+Broke/caught: 
+    (1) worker exited on "master -> replica?" Redis error and didn't restart - fixed with restart policy. 
+    (2) server Grafana password was empty - GF_SECURITY_ADMIN_PASSWORD unset because auto-deploy started Grafana before GRAFANA_PASSWORD was added to server .env; fixed with --force-recreate + grafana cli reset-admin-password. Config changed after container start doesn't apply until recreate
+Learned: a container is a frozen snapshot of its start-time environment - new/changed env needs a recreate. Secrets must be in the server .env BEFORE the deploy runs (auto-deploy just runs compose up). SSH tunnel (-L 3000:localhost:3000) reaches an internal service securely without exposing a port. Scrape-time DB queries avoid multiprocess metric headaches. Don't over-build - Sentry skipped because a zero-user demo doesn't need it.
+Next session 
+    1) public demo page (one-page site, live status polling, uses the demo API key rate-limited) 
+    2) load test (few hundred deliveries/min) 
+    3) chaos demo (kill worker mid-delivery, show nothing lost) 
+    4) README as engineering post + architecture diagram 
+    5) 2-3 min demo video. Backlog: per-IP rate limiting, idempotency key, off-site backups, Sentry.
