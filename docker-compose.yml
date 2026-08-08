@@ -1,6 +1,7 @@
 services:
   api:
     build: .
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -13,6 +14,7 @@ services:
 
   worker:
     build: .
+    restart: unless-stopped
     command: celery -A app.celery_app worker --loglevel=info
     env_file:
       - .env
@@ -26,6 +28,7 @@ services:
 
   beat:
     build: .
+    restart: unless-stopped
     command: celery -A app.celery_app beat --loglevel=info
     env_file:
       - .env
@@ -38,6 +41,7 @@ services:
 
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: hookline
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -49,11 +53,13 @@ services:
 
   redis:
     image: redis:7
+    restart: unless-stopped
     ports:
       - "6379:6379"
 
   caddy:
     image: caddy:2
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
