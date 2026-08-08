@@ -1,5 +1,6 @@
 import os
 
+import redis.asyncio as aioredis
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -8,6 +9,8 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 load_dotenv()
 DATABASE_URL = os.environ["DATABASE_URL"]
 SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "+psycopg")
+REDIS_URL = os.environ["REDIS_URL"]
+redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
 
 engine = create_async_engine(DATABASE_URL) # For web
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False) # Session Factory

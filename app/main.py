@@ -11,9 +11,11 @@ from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import engine, get_session
 from app.models import ApiKey, Event
+from app.ratelimit import rate_limit
 from app.worker import deliver_event
 
 events_by_status = Gauge(
@@ -47,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-
+# Endpoint for Prometheus
 @app.get("/metrics")
 async def metrics(session: Annotated[AsyncSession, Depends(get_session)]):
     # query counts grouped by status
@@ -62,7 +64,7 @@ async def metrics(session: Annotated[AsyncSession, Depends(get_session)]):
 
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-
+# Uptime health Check
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -81,7 +83,6 @@ class WebhookIn(BaseModel):
             raise ValueError(f"Payload exceeds {MAX_PAYLOAD_BYTES} bytes")
         return v
 
-
 class EventOut(BaseModel):
     """ Pydantic response model = Serializer: model->JSON """
     id: UUID
@@ -92,8 +93,49 @@ class EventOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class DeliveryAttemptOut(BaseModel):
+    attempt_number: int
+    response_status_code: int | None
+    response_body: str | None
+    error_message: str | None
+    attempted_at: datetime
+    model_config = {"from_attributes": True}
 
-@app.post("/api/v1/events", status_code=202, response_model=EventOut)
+class EventDetailOut(BaseModel):
+    id: UUID
+    status: str
+    target_url: str
+    attempts_count: int
+    max_retries: int
+    next_attempt_at: datetime | None
+    created_at: datetime
+    delivery_attempts: list[DeliveryAttemptOut]
+    model_config = {"from_attributes": True}
+
+
+# demo page polls this endpoint
+@app.get("/api/v1/events/{id}/detail", response_model=EventDetailOut)
+async def get_event_detail(
+    id: UUID, session: Annotated[AsyncSession, Depends(get_session)]
+):
+    stmt = (
+        select(Event)
+        .where(Event.id == id)
+        .options(selectinload(Event.delivery_attempts))
+    )
+    result = await session.execute(stmt)
+    event = result.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=404, detail="event not found")
+    return event
+
+
+@app.post(
+    "/api/v1/events",
+    status_code=202,
+    response_model=EventOut,
+    dependencies=[Depends(rate_limit)],
+)
 async def create_event(
     webhook: WebhookIn, 
     session: Annotated[AsyncSession, Depends(get_session)],

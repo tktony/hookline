@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hookline — webhook delivery engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111311;
+    --surface-2: #161916;
+    --border: #232823;
+    --text: #c4c8c2;
+    --bright: #eef0ec;
+    --muted: #5a5f58;
+    --accent: #6b7f3a;      /*olive green*/ 
+    --accent-bright: #94ad50;
+    --success: #6b9e4f;
+    --warning: #b8993a;
+    --error: #b0503f;
+    --radius: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  /* header */
+  header { margin-bottom: 40px; }
+  .brand { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .brand h1 { font-size: 22px; font-weight: 700; color: var(--bright); letter-spacing: -0.5px; }
+  .brand .tag { color: var(--accent-bright); font-size: 13px; }
+  .sub { color: var(--muted); font-size: 13px; max-width: 620px; }
+  .sub a { color: var(--accent-bright); text-decoration: none; border-bottom: 1px solid var(--border); }
+  .sub a:hover { border-color: var(--accent-bright); }
+
+  section { margin-bottom: 32px; }
+  .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+  /* form */
+  .form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  input[type=text], textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 13px;
+    padding: 10px 12px; border-radius: var(--radius); resize: vertical;
+  }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 72px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; cursor: pointer; user-select: none; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  button {
+    background: var(--accent); color: #0a0a0a; border: none; font-family: inherit;
+    font-weight: 700; font-size: 13px; padding: 10px 22px; border-radius: var(--radius);
+    cursor: pointer; letter-spacing: 0.3px;
+  }
+  button:hover:not(:disabled) { background: var(--accent-bright); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* pipeline */
+  .pipeline { display: flex; align-items: stretch; gap: 0; }
+  .stage {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px 10px; text-align: center;
+    position: relative; transition: border-color .3s, background .3s;
+  }
+  .stage .st-name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stage .st-icon { font-size: 18px; margin-bottom: 6px; color: var(--border); transition: color .3s; }
+  .stage.active { border-color: var(--accent); background: var(--surface-2); }
+  .stage.active .st-icon { color: var(--accent-bright); }
+  .stage.active .st-name { color: var(--text); }
+  .stage.done .st-icon { color: var(--success); }
+  .stage.done { border-color: #2c3a26; }
+  .stage.fail .st-icon { color: var(--error); }
+  .stage.fail { border-color: #3a2622; }
+  .arrow { display: flex; align-items: center; color: var(--border); padding: 0 6px; font-size: 14px; }
+  .arrow.lit { color: var(--accent); }
+
+  /* status line */
+  .statusbar {
+    display: flex; align-items: center; gap: 12px; margin-top: 16px;
+    padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 13px; min-height: 40px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.pending { background: var(--muted); }
+  .dot.queued, .dot.pending.live { background: var(--accent-bright); animation: pulse 1s infinite; }
+  .dot.retrying { background: var(--warning); animation: pulse 1s infinite; }
+  .dot.success { background: var(--success); }
+  .dot.dead { background: var(--error); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .statusbar .sid { color: var(--muted); margin-left: auto; font-size: 12px; }
+
+  /* attempt log */
+  .log { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .log-row {
+    display: grid; grid-template-columns: 70px 90px 1fr 130px;
+    gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 12px; align-items: center;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-head { background: var(--surface-2); color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+  .log-row .code-ok { color: var(--success); }
+  .log-row .code-bad { color: var(--error); }
+  .log-row .code-warn { color: var(--warning); }
+  .log-empty { padding: 20px 14px; color: var(--muted); font-size: 12px; text-align: center; }
+  .mono-dim { color: var(--muted); }
+  .err { color: var(--error); }
+
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 20px; }
+  footer a { color: var(--accent-bright); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <h1>hookline</h1>
+      <span class="tag">webhook delivery engine</span>
+    </div>
+    <p class="sub">
+      A production-grade webhook delivery service: durable queue, exponential-backoff retries,
+      dead-lettering, and a full audit log of every attempt. Submit an event below and watch it
+      move through the real pipeline. No account needed.
+    </p>
+  </header>
+
+  <section>
+    <div class="label">Submit an event</div>
+    <div class="form">
+      <div class="field">
+        <label>target url</label>
+        <input type="text" id="target" value="https://webhook.site" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>payload (json)</label>
+        <textarea id="payload" spellcheck="false">{ "event": "demo.ping", "value": 42 }</textarea>
+      </div>
+      <div class="row">
+        <label class="check">
+          <input type="checkbox" id="simfail">
+          simulate a flaky endpoint (fails first, then recovers)
+        </label>
+        <button id="send">send event</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">Pipeline</div>
+    <div class="pipeline" id="pipeline">
+      <div class="stage" data-stage="submit"><div class="st-icon">▸</div><div class="st-name">submit</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="api"><div class="st-icon">◆</div><div class="st-name">api</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="queue"><div class="st-icon">▤</div><div class="st-name">queue</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="worker"><div class="st-icon">⚙</div><div class="st-name">worker</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="target"><div class="st-icon">◈</div><div class="st-name">target</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="result"><div class="st-icon">●</div><div class="st-name">result</div></div>
+    </div>
+    <div class="statusbar">
+      <span class="dot" id="dot"></span>
+      <span id="statustext">idle — submit an event to begin</span>
+      <span class="sid" id="sid"></span>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">Delivery attempts (live audit log)</div>
+    <div class="log" id="log">
+      <div class="log-row log-head">
+        <span>attempt</span><span>status</span><span>detail</span><span>time</span>
+      </div>
+      <div class="log-empty" id="logempty">no attempts yet</div>
+    </div>
+  </section>
+
+  <footer>
+    hookline is open source ·
+    <a href="https://github.com/tktony/hookline" target="_blank">github.com/tktony/hookline</a>
+    · built with FastAPI, Celery, Postgres, Redis, Docker, Caddy
+  </footer>
+
+</div>
+
+<script>
+// ---- config ----
+const API = "";                       // same origin (served by Caddy alongside the API)
+const DEMO_KEY = "hl_live_W1QnmrfzlSCsz2ng5vgGieBwM37pBXG82AL9bBoYyjk";
+const FLAKY_URL = "https://httpbin.org/status/503";  // used when "simulate" is checked
+
+const stages = ["submit","api","queue","worker","target","result"];
+const el = {
+  send: document.getElementById("send"),
+  target: document.getElementById("target"),
+  payload: document.getElementById("payload"),
+  simfail: document.getElementById("simfail"),
+  dot: document.getElementById("dot"),
+  statustext: document.getElementById("statustext"),
+  sid: document.getElementById("sid"),
+  log: document.getElementById("log"),
+  logempty: document.getElementById("logempty"),
+  pipeline: document.getElementById("pipeline"),
+};
+let pollTimer = null;
+
+function stageEl(name){ return document.querySelector(`.stage[data-stage="${name}"]`); }
+function arrows(){ return [...document.querySelectorAll(".arrow")]; }
+
+function resetPipeline(){
+  stages.forEach(s => stageEl(s).className = "stage");
+  arrows().forEach(a => a.classList.remove("lit"));
+}
+
+// light stages up to an index, with a small choreographed delay
+async function animateThrough(upto){
+  for (let i=0;i<=upto;i++){
+    stageEl(stages[i]).classList.add("active");
+    if (i>0) arrows()[i-1].classList.add("lit");
+    await sleep(180);
+    if (i<upto) stageEl(stages[i]).classList.remove("active"), stageEl(stages[i]).classList.add("done");
+  }
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function setStatus(status, text){
+  el.dot.className = "dot " + status;
+  el.statustext.textContent = text;
+}
+
+function codeClass(code){
+  if (code === null || code === undefined) return "code-bad";
+  if (code >= 200 && code < 300) return "code-ok";
+  if (code >= 500) return "code-bad";
+  return "code-warn";
+}
+
+function renderLog(attempts){
+  // keep header, replace rows
+  const head = el.log.querySelector(".log-head");
+  el.log.innerHTML = "";
+  el.log.appendChild(head);
+  if (!attempts || attempts.length === 0){
+    const e = document.createElement("div");
+    e.className = "log-empty"; e.textContent = "no attempts yet";
+    el.log.appendChild(e);
+    return;
+  }
+  // newest first
+  [...attempts].sort((a,b)=> b.attempt_number - a.attempt_number).forEach(a=>{
+    const row = document.createElement("div");
+    row.className = "log-row";
+    const code = a.response_status_code;
+    const codeTxt = code !== null && code !== undefined ? code : "—";
+    const detail = a.error_message
+      ? `<span class="err">${escapeHtml(a.error_message)}</span>`
+      : `<span class="mono-dim">delivered response</span>`;
+    const t = new Date(a.attempted_at).toLocaleTimeString();
+    row.innerHTML = `
+      <span>#${a.attempt_number}</span>
+      <span class="${codeClass(code)}">${codeTxt}</span>
+      <span>${detail}</span>
+      <span class="mono-dim">${t}</span>`;
+    el.log.appendChild(row);
+  });
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function submit(){
+  clearInterval(pollTimer);
+  resetPipeline();
+  renderLog([]);
+  el.send.disabled = true;
+  el.sid.textContent = "";
+
+  let payload;
+  try { payload = JSON.parse(el.payload.value); }
+  catch { setStatus("dead","invalid JSON in payload"); el.send.disabled=false; return; }
+
+  const target = el.simfail.checked ? FLAKY_URL : el.target.value.trim();
+
+  setStatus("pending live","submitting…");
+  await animateThrough(2); // submit -> api -> queue
+
+  let res;
+  try {
+    res = await fetch(`${API}/api/v1/events`, {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "Authorization":`Bearer ${DEMO_KEY}` },
+      body: JSON.stringify({ target_url: target, payload })
+    });
+  } catch(e){ setStatus("dead","network error"); el.send.disabled=false; return; }
+
+  if (res.status === 429){ setStatus("dead","rate limit reached — wait a minute and retry"); el.send.disabled=false; return; }
+  if (!res.ok){
+    const t = await res.text();
+    setStatus("dead", `rejected (${res.status})`); el.send.disabled=false; return;
+  }
+  const ev = await res.json();
+  el.sid.textContent = ev.id.slice(0,8);
+  stageEl("worker").classList.add("active");
+  arrows()[3].classList.add("lit");
+  setStatus("queued","queued — worker picking up…");
+  poll(ev.id);
+}
+
+function poll(id){
+  pollTimer = setInterval(async ()=>{
+    let d;
+    try { d = await (await fetch(`${API}/api/v1/events/${id}/detail`)).json(); }
+    catch { return; }
+    renderLog(d.delivery_attempts);
+
+    if (d.status === "success"){
+      clearInterval(pollTimer);
+      ["submit","api","queue","worker","target"].forEach(s=>{ const e=stageEl(s); e.className="stage done"; });
+      const r = stageEl("result"); r.className = "stage done"; r.classList.add("active");
+      setStatus("success", `delivered after ${d.attempts_count} attempt(s)`);
+      el.send.disabled = false;
+    } else if (d.status === "dead"){
+      clearInterval(pollTimer);
+      stageEl("target").className = "stage fail";
+      stageEl("result").className = "stage fail active";
+      setStatus("dead", `dead-lettered after ${d.attempts_count} failed attempts`);
+      el.send.disabled = false;
+    } else if (d.status === "retrying"){
+      stageEl("target").className = "stage fail";
+      stageEl("worker").classList.add("active");
+      const nxt = d.next_attempt_at ? new Date(d.next_attempt_at).toLocaleTimeString() : "";
+      setStatus("retrying", `attempt ${d.attempts_count} failed — retrying at ${nxt}`);
+    } else { // pending / queued
+      setStatus("queued", "in flight — worker delivering…");
+    }
+  }, 1000);
+}
+
+el.send.addEventListener("click", submit);
+</script>
+</body>
+</html>
