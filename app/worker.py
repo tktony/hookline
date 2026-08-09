@@ -10,12 +10,12 @@ from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.models import DeliveryAttempt, Event
 
-BACKOFF_SCHEDULE = [
-    60,     # 1 minute
-    300,    # 5 minutes
-    900,    # 15 minutes
-    1800,   # 30 minutes
-    3600,   # 60 minutes
+BACKOFF_SCHEDULE = [ # shortened for demo, uncomment real values afterwards
+    5,                #60,     # 1 minute
+    10,               #300,    # 5 minutes
+    15,               #900,    # 15 minutes
+    20,               #1800,   # 30 minutes
+    30,               #3600,   # 60 minutes
 ]
 MAX_RESPONSE_BODY = 10_000  
 
@@ -27,7 +27,7 @@ def is_safe_url(url: str) -> bool:
         return False
     try:
         ip_str = socket.gethostbyname(hostname)
-    except socket.gaierror:
+    except socket.gaierror: # DNS/hostname resolution error
         return False  # can't resolve = don't trust it
     ip = ipaddress.ip_address(ip_str)
     return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)

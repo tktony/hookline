@@ -15,6 +15,6 @@ celery_app.autodiscover_tasks(["app.worker"])
 celery_app.conf.beat_schedule = {
     "poll-retries-every-60s": {
         "task": "app.worker.poll_retries",
-        "schedule": 60.0,
+        "schedule": 5.0, # revert back to 60 after demo
     },
 }
