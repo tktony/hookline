@@ -1,3 +1,5 @@
+"""Prometheus metrics endpoint for monitoring webhook event delivery."""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
@@ -16,17 +18,19 @@ events_by_status = Gauge(
     ["status"],
 )
 
-# Endpoint for Prometheus
 @router.get("/metrics")
 async def metrics(session: Annotated[AsyncSession, Depends(get_session)]):
-    # query counts grouped by status
+    """Return current webhook event counts in Prometheus format."""
+
+    # Aggregate event counts by status to expose them as Prometheus labels.
     stmt = select(Event.status, func.count(Event.id)).group_by(Event.status)
     result = await session.execute(stmt)
     rows = result.all()
 
-    # clear old values and set fresh ones
+    # Replace previous metric values with the current database state.
     events_by_status.clear()
     for status, count in rows:
         events_by_status.labels(status=status).set(count)
 
+    # Return metrics using Prometheus's expected exposition format.
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

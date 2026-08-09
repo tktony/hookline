@@ -1,3 +1,5 @@
+"""Celery application configuration for background webhook delivery tasks."""
+
 import os
 
 from celery import Celery
@@ -10,6 +12,7 @@ celery_app = Celery(
     backend=REDIS_URL,
 )
 
+# Discover Celery tasks defined in the worker module.
 celery_app.autodiscover_tasks(["app.worker"])
 
 celery_app.conf.beat_schedule = {

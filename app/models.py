@@ -1,3 +1,5 @@
+"""SQLAlchemy models for API keys, webhook events, and delivery attempts."""
+
 import uuid
 from datetime import datetime
 
@@ -23,7 +25,10 @@ class ApiKey(Base):
 class Event(Base):
     __tablename__ = "events"
 
-    __table_args__ = (Index("ix_events_status_next_attempt_at", "status", "next_attempt_at"),) # trailing comma -> tuple
+    # Index status and retry time together to efficiently find events due for delivery.
+    __table_args__ = (
+        Index("ix_events_status_next_attempt_at", "status", "next_attempt_at"), # trailing comma -> tuple
+        ) 
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     api_key_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"), index=True)

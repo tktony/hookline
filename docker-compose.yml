@@ -6,8 +6,6 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL}
-    volumes:
-      - .:/app
     depends_on:
       - db
       - redis
@@ -20,8 +18,6 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL}
-    volumes:
-      - .:/app
     depends_on:
       - db
       - redis
@@ -34,8 +30,6 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL}
-    volumes:
-      - .:/app
     depends_on:
       - redis
 

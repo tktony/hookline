@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 celerybeat-schedule
 celerybeat-schedule.*
+.pytest_cache/
+.ruff_cache/

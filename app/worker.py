@@ -1,3 +1,5 @@
+"""Delivery engine: delivers events to their targets, records attempts, and schedules retries."""
+
 import ipaddress
 import socket
 from datetime import datetime, timedelta, timezone
@@ -20,29 +22,41 @@ BACKOFF_SCHEDULE = [ # shortened for demo, uncomment real values afterwards
 MAX_RESPONSE_BODY = 10_000  
 
 
-
 def is_safe_url(url: str) -> bool:
+    """Return True only if the URL's host resolves to a public address (SSRF guard, fails closed)."""
     hostname = urlparse(url).hostname
     if hostname is None:
         return False
+
     try:
         ip_str = socket.gethostbyname(hostname)
-    except socket.gaierror: # DNS/hostname resolution error
-        return False  # can't resolve = don't trust it
+    except socket.gaierror: 
+        # Reject unresolvable hosts to fail closed.
+        return False 
+
     ip = ipaddress.ip_address(ip_str)
-    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
+
+    # Prevent requests to private, loopback, link-local, reserved, or multicast addresses.
+    return not (
+        ip.is_private 
+        or ip.is_loopback 
+        or ip.is_link_local 
+        or ip.is_reserved 
+        or ip.is_multicast
+    )
 
 
 
 @celery_app.task
 def deliver_event(event_id: str):
+    """Deliver one event: POST to its target, log the attempt, and mark success/retry/dead."""
     session = SessionLocal()
     try:
         event = session.get(Event, event_id)
         if event is None:
             return 
 
-        # SSRF Gurad
+        # Prevent SSRF by rejecting targets that resolve to internal addresses.
         if not is_safe_url(event.target_url):
             attempt = DeliveryAttempt(
                 event_id=event_id,
@@ -57,15 +71,20 @@ def deliver_event(event_id: str):
             session.commit()
             return
 
-        # 1. Make the POST to event.target_url with event.payload: Use httpx with a timeout
         status_code = None
         body = None
         error = None
+
         try:
             with httpx.Client(timeout=10.0) as client:
-                response = client.post(event.target_url, json=event.payload)
+                response = client.post(
+                    event.target_url, 
+                    json=event.payload
+                )
+
             status_code = response.status_code
             text = response.text
+
             if len(text) > MAX_RESPONSE_BODY:
                 body = text[:MAX_RESPONSE_BODY] + "...[truncated]"
             else:
@@ -74,7 +93,7 @@ def deliver_event(event_id: str):
         except httpx.RequestError as exc:
             error = str(exc)
 
-        # 2. Create a DeliveryAttempt row recording what happened: (attempt_number, response_status_code, response_body, error_message)
+        # Record the outcome of each delivery attempt for auditing and debugging.
         delivery_attempt = DeliveryAttempt(
             event_id=event_id,
             attempt_number=event.attempts_count + 1,
@@ -82,25 +101,32 @@ def deliver_event(event_id: str):
             response_body=body,
             error_message=error
         )
+
         session.add(delivery_attempt)
         event.attempts_count += 1
 
-        # 3. Update event.status based on outcome
-        # SUCCESS
+        # A 2xx response indicates successful delivery.
         if status_code is not None and 200 <= status_code < 300:
             event.status = "success"
-        # DEAD
+
+        # Give up and dead-letter once the retry limit is reached.
         elif event.attempts_count >= event.max_retries:
             event.status = "dead"
-            # TODO: Dead letter extensions if needed
-        # RETRY
+
+        # Otherwise schedule the next attempt using the configured backoff schedule.
         else:
-            # timestamp into the future 
-            delay = BACKOFF_SCHEDULE[min(event.attempts_count - 1, len(BACKOFF_SCHEDULE) - 1)]
+            delay = BACKOFF_SCHEDULE[
+                min(
+                    event.attempts_count - 1, 
+                    len(BACKOFF_SCHEDULE) - 1
+                )
+            ]
+
             event.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
             event.status = "retrying"
         
         session.commit()
+
     finally:
         session.close()
 
@@ -108,26 +134,34 @@ def deliver_event(event_id: str):
 
 @celery_app.task
 def poll_retries():
+    """Re-enqueue events that are due for retry or whose earlier claim was lost."""
     session = SessionLocal()
+
     try:
         now = datetime.now(timezone.utc)
-        grace = now - timedelta(minutes=5) # lost claim rescued after 5 minutes instead of orphaning
+
+        # Recover queued events whose previous worker claim may have been lost instead of orphaning.
+        grace = now - timedelta(minutes=5) 
+
         stmt = select(Event).where(
             or_(
             (Event.status == "retrying") & (Event.next_attempt_at <= now),
             (Event.status == "queued") & (Event.next_attempt_at <= grace),
             )
         )
+
         due_events = session.execute(stmt).scalars().all()
 
-        # Claim all of them, then commit
+        # Claim events before enqueueing to prevent duplicate scheduling.
         for event in due_events:
             event.status = "queued"
             event.next_attempt_at = now   # stamp claim time
+
         session.commit()
 
-        # Now that the claim is committed, enqueue
+        # Enqueue only after the database claim has been committed.
         for event in due_events:
             deliver_event.delay(str(event.id))
+
     finally:
         session.close()

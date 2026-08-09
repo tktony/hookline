@@ -11,3 +11,4 @@ Dockerfile
 docs/
 DEVLOG.md
 *.md
+tests/
