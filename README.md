@@ -20,18 +20,17 @@
 
 ## What it does
 
-A **webhook** is an HTTP POST that one service sends another when something happens - a payment
-clears, a job finishes, a build completes. Sending it once is easy. Sending it *reliably* - when
-the receiver is down, slow, or flaky - is the hard part, and it's the part most people
-underestimate.
+A **webhook** is an HTTP POST that one service sends another when something happens. Sending it
+once is trivial. Sending it *reliably*, when the receiver is down, slow, or flaky, is the hard
+part.
 
-**hookline** takes ownership of that problem. You hand it an event; it guarantees the delivery
-attempt, retries with backing-off delays when the target fails, gives up cleanly after a bounded
-number of tries, and records every single attempt so you can prove what happened. The sender gets
-a `202 Accepted` in milliseconds and never has to wait on the receiver.
+**hookline** handles that part. You hand it an event, and it retries with backoff when the target
+fails, gives up cleanly after a bounded number of tries, and records every attempt so you can
+prove what happened. The sender gets a `202 Accepted` in milliseconds and never waits on the
+receiver.
 
-There's a **live, interactive demo** at **[tryhookline.dev](https://tryhookline.dev)** - submit an
-event and watch it move through the real pipeline, including the retry-then-dead-letter path.
+There's a live demo at **[tryhookline.dev](https://tryhookline.dev)**: submit an event and watch
+it move through the real pipeline, including the retry-then-dead-letter path.
 
 ## Architecture
 
@@ -64,7 +63,7 @@ flowchart TB
     Graf -->|"query"| Prom
 ```
 
-The **request lifecycle** - a delivery that fails once, then succeeds - is shown in detail here:
+The **request lifecycle** for a delivery that fails once, then succeeds, is shown in detail here:
 
 ```mermaid
 sequenceDiagram
@@ -101,7 +100,7 @@ sequenceDiagram
     A-->>C: status + full attempt history
 ```
 
-And the **data model** - three tables, an append-only attempt log per event:
+And the **data model**: three tables, with an append-only attempt log per event:
 
 ```mermaid
 erDiagram
@@ -150,27 +149,27 @@ erDiagram
    and the API returns `202 Accepted` immediately. The client is done in milliseconds; it never
    waits on the target.
 4. **Deliver.** A Celery worker picks up the job and makes the HTTP POST to the target with a
-   10-second timeout. Every attempt is recorded in `delivery_attempts` - status code, response
+   10-second timeout. Every attempt is recorded in `delivery_attempts`: status code, response
    body (truncated), error, and timing.
 5. **Retry or finish.** On a 2xx the event is marked `success`. On failure it's scheduled for
    retry with **exponential backoff** (60s → 5m → 15m → 30m → 60m), and after a bounded number of
    attempts it's **dead-lettered** (`dead`) and left alone.
-6. **Recover.** A Celery Beat scheduler polls Postgres every 60s for events due for retry - and
-   for events whose in-flight claim was lost (worker crash, Redis flush), rescuing them after a
-   grace window. The retry schedule lives in Postgres, not Redis, so **nothing is lost** if the
-   broker is flushed.
+6. **Recover.** A Celery Beat scheduler polls Postgres every 60s for events due for retry, and for
+   events whose in-flight claim was lost (worker crash, Redis flush), rescuing them after a grace
+   window. The retry schedule lives in Postgres, not Redis, so **nothing is lost** if the broker is
+   flushed.
 
 ## Design decisions
 
 A few of the choices that shape the system (the full list lives in [`docs/decisions.md`](docs/decisions.md)):
 
 - **Durable retries in Postgres, not Redis.** The retry schedule (`next_attempt_at`) is stored in
-  Postgres and a poller re-enqueues due work. If Redis is flushed, no pending retry is lost - the
-  poller recovers everything. Redis is treated as a disposable queue; Postgres is the source of
+  Postgres and a poller re-enqueues due work. If Redis is flushed, no pending retry is lost;
+  the poller recovers everything. Redis is treated as a disposable queue; Postgres is the source of
   truth.
 - **Claim-before-enqueue, with lost-claim rescue.** The poller flips a due event to `queued` and
   commits *before* enqueuing, so a delivery can never start on an event whose claim isn't durable.
-  A claim that's lost mid-flight is rescued by a later poll after a grace window - this is the
+  A claim that's lost mid-flight is rescued by a later poll after a grace window; this is the
   "nothing is lost" guarantee.
 - **SSRF guard on resolved IPs, fail-closed.** A public webhook sender is an SSRF machine. The guard
   resolves the hostname and checks the *actual IP* (not the string, which is trivially bypassed),
@@ -186,33 +185,21 @@ A few of the choices that shape the system (the full list lives in [`docs/decisi
 
 ## Tech stack
 
-**Core**
-- **Python 3.12**
-- **FastAPI** - async API framework
-- **Celery** + **Celery Beat** - background delivery worker and scheduler
-- **SQLAlchemy 2.0** (async) - ORM
-- **Alembic** - database migrations
-- **Pydantic** - request/response validation
-- **httpx** - outbound HTTP delivery (with timeouts)
+**Core:** Python 3.12, FastAPI for the async API, Celery + Celery Beat for background delivery and
+scheduling, SQLAlchemy 2.0 (async) with Alembic for migrations, Pydantic for validation, httpx for
+outbound delivery.
 
-**Data & infrastructure**
-- **PostgreSQL 16** - source of truth (events, attempts, API keys; JSONB payloads)
-- **Redis 7** - job queue and per-IP rate-limit store
-- **Docker** + **Docker Compose** - containerised stack
-- **Caddy** - reverse proxy with automatic Let's Encrypt HTTPS
+**Data & infrastructure:** PostgreSQL 16 as the source of truth (events, attempts, API keys;
+JSONB payloads), Redis for the job queue and per-IP rate-limit store, all running as Docker
+Compose behind Caddy for reverse proxying and automatic Let's Encrypt HTTPS.
 
-**Observability & ops**
-- **prometheus-client** + **Prometheus** - metrics
-- **Grafana** - dashboards
-- **UptimeRobot** - external uptime monitoring
-- nightly **pg_dump** backups
+**Observability & ops:** Prometheus (via prometheus-client) and Grafana dashboards over the live
+system, UptimeRobot for external uptime monitoring, nightly pg_dump backups.
 
-**Testing & CI**
-- **pytest** + **pytest-asyncio** - test suite against a real Postgres test database
-- **GitHub Actions** - runs the suite on every push and gates deployment on it
+**Testing & CI:** pytest + pytest-asyncio against a real Postgres test database, with GitHub
+Actions running the suite on every push and gating deployment on it.
 
-**Hosting**
-- **Hetzner** VPS · **Cloudflare** DNS
+**Hosting:** Hetzner VPS, Cloudflare DNS.
 
 ## Running it locally
 
@@ -231,7 +218,7 @@ docker compose up -d --build
 # run database migrations
 docker compose run --rm api alembic upgrade head
 
-# mint an API key (prints the raw key once - save it)
+# mint an API key (prints the raw key once, save it)
 docker compose exec api python -m app.cli create-key --label "local-dev"
 ```
 
@@ -275,18 +262,18 @@ internal-only; the database and Redis are never exposed publicly.
 
 Things a larger-scale or multi-tenant deployment would add, deliberately left out here:
 
-- **Idempotency keys** - dedupe events on client retry.
-- **Off-site backups** - current backups are on-server; production would ship them to object storage.
-- **Sliding-window rate limiting** - the current fixed window allows a small burst at the boundary.
-- **DNS-rebinding hardening** - pin the resolved IP into the outbound request to fully close the SSRF gap.
-- **Error tracking (Sentry)** - worth adding once there are real users generating errors to triage.
+- **Idempotency keys**: dedupe events on client retry.
+- **Off-site backups**: current backups are on-server; production would ship them to object storage.
+- **Sliding-window rate limiting**: the current fixed window allows a small burst at the boundary.
+- **DNS-rebinding hardening**: pin the resolved IP into the outbound request to fully close the SSRF gap.
+- **Error tracking (Sentry)**: worth adding once there are real users generating errors to triage.
 
 ## Contributing
 
 Contributions are welcome. To propose a change:
 
 1. Fork the repository and create a branch (`git checkout -b feature/your-change`).
-2. Make your change. Keep the existing style - core delivery logic stays hand-written and readable,
+2. Make your change. Keep the existing style: core delivery logic stays hand-written and readable,
    with docstrings for *what* and comments only for non-obvious *why*.
 3. Add or update tests, and make sure the suite passes: `docker compose exec api pytest -v`.
 4. Open a pull request describing the change and the reasoning behind it.

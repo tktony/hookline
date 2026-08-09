@@ -203,7 +203,7 @@
       <span class="tag">webhook delivery engine</span>
     </div>
     <p class="sub">
-      A production-grade webhook delivery engine - running live. Submit an event below
+      A production-grade webhook delivery engine, running live. Submit an event below
       and watch it move through the real pipeline.
     </p>
     <div class="links">
@@ -219,8 +219,8 @@
     <div class="explain">
       <p>
         A <span class="hl">webhook</span> is an HTTP POST one service sends another when
-        something happens. Sending it once is easy; sending it <span class="hl">reliably</span>
-        - through timeouts, outages, and flaky receivers - is the hard part.
+        something happens. Sending it once is trivial. Sending it <span class="hl">reliably</span>,
+        through timeouts, outages, and flaky receivers, is the hard part.
       </p>
       <p>
         <span class="hl">hookline</span> owns that: it queues the event, retries with backoff,
@@ -230,12 +230,12 @@
 
     <div class="label" style="margin-top:24px">How the pipeline works</div>
     <div class="steps">
-      <div class="step"><span class="n">1</span><div><b>submit</b> - an event (target URL + JSON payload) is POSTed to the API and validated.</div></div>
-      <div class="step"><span class="n">2</span><div><b>api</b> - the target is SSRF-checked, written to Postgres as <code>pending</code>, and a job is queued.</div></div>
-      <div class="step"><span class="n">3</span><div><b>queue</b> - the job sits in Redis; the API returns <code>202 Accepted</code> immediately, without waiting for delivery.</div></div>
-      <div class="step"><span class="n">4</span><div><b>worker</b> - a background worker picks up the job and makes the HTTP POST to the target, with a timeout.</div></div>
-      <div class="step"><span class="n">5</span><div><b>target</b> - on a 2xx the event is marked <code>success</code>; on failure it's scheduled for retry with exponential backoff.</div></div>
-      <div class="step"><span class="n">6</span><div><b>result</b> - after too many failures the event is <code>dead-lettered</code>. Every attempt is logged either way.</div></div>
+      <div class="step"><span class="n">1</span><div><b>submit</b>: an event (target URL + JSON payload) is POSTed to the API and validated.</div></div>
+      <div class="step"><span class="n">2</span><div><b>api</b>: the target is SSRF-checked, written to Postgres as <code>pending</code>, and a job is queued.</div></div>
+      <div class="step"><span class="n">3</span><div><b>queue</b>: the job sits in Redis; the API returns <code>202 Accepted</code> immediately, without waiting for delivery.</div></div>
+      <div class="step"><span class="n">4</span><div><b>worker</b>: a background worker picks up the job and makes the HTTP POST to the target, with a timeout.</div></div>
+      <div class="step"><span class="n">5</span><div><b>target</b>: on a 2xx the event is marked <code>success</code>; on failure it's scheduled for retry with exponential backoff.</div></div>
+      <div class="step"><span class="n">6</span><div><b>result</b>: after too many failures the event is <code>dead-lettered</code>. Every attempt is logged either way.</div></div>
     </div>
   </section>
 
@@ -243,7 +243,7 @@
   <section>
     <div class="label">Built for production</div>
     <div class="features">
-      <div class="feat"><b>At-least-once delivery</b><span>Durable queue backed by Postgres - retries survive a broker or worker restart.</span></div>
+      <div class="feat"><b>At-least-once delivery</b><span>Durable queue backed by Postgres; retries survive a broker or worker restart.</span></div>
       <div class="feat"><b>Exponential backoff</b><span>Failed deliveries retry on a widening schedule, capped, then dead-letter.</span></div>
       <div class="feat"><b>Full audit log</b><span>Every attempt records status code, response, error, and timing.</span></div>
       <div class="feat"><b>SSRF protection</b><span>Targets resolving to private/internal addresses are rejected before any request.</span></div>
@@ -292,7 +292,7 @@
     </div>
     <div class="statusbar">
       <span class="dot" id="dot"></span>
-      <span id="statustext">idle - submit an event to begin</span>
+      <span id="statustext">idle, submit an event to begin</span>
       <span class="sid" id="sid"></span>
     </div>
   </section>
@@ -423,14 +423,14 @@ async function submit(){
     });
   } catch(e){ setStatus("dead","network error"); el.send.disabled = false; return; }
 
-  if (res.status === 429){ setStatus("dead","rate limit reached - wait a minute and retry"); el.send.disabled = false; return; }
+  if (res.status === 429){ setStatus("dead","rate limit reached, wait a minute and retry"); el.send.disabled = false; return; }
   if (!res.ok){ setStatus("dead", `rejected (${res.status})`); el.send.disabled = false; return; }
 
   const ev = await res.json();
   el.sid.textContent = ev.id.slice(0,8);
   stageEl("worker").classList.add("active");
   arrows()[3].classList.add("lit");
-  setStatus("queued","queued - worker picking up…");
+  setStatus("queued","queued, worker picking up…");
   poll(ev.id);
 }
 
@@ -457,9 +457,9 @@ function poll(id){
       stageEl("target").className = "stage fail";
       stageEl("worker").classList.add("active");
       const nxt = d.next_attempt_at ? new Date(d.next_attempt_at).toLocaleTimeString() : "";
-      setStatus("retrying", `attempt ${d.attempts_count} failed - retrying at ${nxt}`);
+      setStatus("retrying", `attempt ${d.attempts_count} failed, retrying at ${nxt}`);
     } else { // pending / queued
-      setStatus("queued", "in flight - worker delivering…");
+      setStatus("queued", "in flight, worker delivering…");
     }
   }, 1000);
 }
