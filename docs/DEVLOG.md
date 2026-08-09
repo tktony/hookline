@@ -100,3 +100,26 @@ Next session
     3) chaos demo (kill worker mid-delivery, show nothing lost) 
     4) README as engineering post + architecture diagram 
     5) 2-3 min demo video. Backlog: per-IP rate limiting, idempotency key, off-site backups, Sentry.
+
+## Session 9
+Built: The biggest session - hardening, the public demo, restructure, and tests. 
+    (1) Per-IP rate limiting via Redis (incr+expire, X-Forwarded-For behind Caddy) on POST /events. 
+    (2) Public demo page: static HTML, real API submit + live polling of /detail, animated pipeline, live attempt log; served by Caddy from a static bind mount at the domain root
+    (3) Added GET /events/{id}/detail (selectinload) for the page. 
+    (4) list_events pagination (limit/offset bounded, ordered) + the 422 cap. 
+    (5) Restructured app into config/schemas/security/metrics/routers; main.py now just wires routers; switched print -> logging. 
+    (6) Deduped config constants into config.py. 
+    (7) Removed the .:/app source mount so containers run image code; switched to conventional docstring/comment across files. 
+    (8) pytest suite (26 tests): SSRF (parameterized + mocked DNS), payload validation, backoff index, auth-required POST, pagination, serialization - real Postgres test DB, async fixtures, dependency-overridden session, mocked HTTP/Celery. 
+    (9) CI runs the suite against Postgres+Redis and gates deploy on it.
+Broke/caught: 
+    (1) httpbin flakiness (random 503s / timeouts) made the "success" demo look broken - switched success path to webhook.site. 
+    (2) async test engine created at module scope -> "attached to a different loop"; fixed by creating the engine inside the per-test fixture and disposing it. 
+    (3) pytest couldn't import app -> added pythonpath=. to pytest.ini and ran inside the container. 
+    (4) CI test failed on Redis connection (rate_limit dep hits Redis before auth) -> added a Redis service to the CI job. 
+    (5) empty Grafana password recurred from deploy-before-env ordering (handled earlier, same root cause). 
+Learned: rate limiting needs shared storage (Redis) because multiple processes; dependency order matters (rate_limit runs before auth). Bind mount = live host folder into container; removing the code mount makes the image authoritative. Async test engines must live in the test's loop. Caddy serves static from a host bind mount, so page updates need only git pull. Docstring = what, inline comment = non-obvious why. CI needs the same infra (Postgres, Redis) the tests touch.
+Next: 
+    1) README (needs the updated architecture diagram + full external-lib/tech list) 
+    2) demo video (Loom, all scenarios) 
+    3) REVERT: short BACKOFF_SCHEDULE and 5s Celery beat schedule back to production values after demo. Backlog: idempotency key, off-site backups, Sentry, sliding-window rate limit.

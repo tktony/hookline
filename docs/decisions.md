@@ -160,3 +160,33 @@ Why: a production DB with no backup is a risk - the pgdata volume is a single po
 ### Sentry deliberately not wired
 Chose: skip Sentry error tracking; note it as future work
 Why: Sentry earns its place with real users generating errors to triage. This is a zero-user demo; errors are visible in logs and I'm the only operator. Knowing what production needs at a given scale and not over-building. UptimeRobot was kept because it protects the goal (a live link staying reachable).
+
+## Session 9
+
+### Per-IP rate limiting in Redis (fixed window)
+Chose: a FastAPI dependency that increments a per-IP counter in Redis (incr + expire), 10 requests / 60s, applied to POST /events. Rejected: in-process memory counting; Caddy-level limiting.
+Why: the API can run multiple processes, so the counter must live in shared storage - in-memory would give each process its own count and reset on restart. Redis incr is atomic and shared across all processes, so the limit is enforced globally and survives restarts. The client IP comes from X-Forwarded-For (Caddy sits in front, so the socket IP is Caddy's). This is what makes it safe to bake a public demo key into the page: even though the key is public, no single IP can abuse it. Known tradeoff: a fixed window allows a burst at the boundary; a sliding window fixes that at more cost - not worth it for demo protection.
+
+### Level-2 demo page: real API calls + choreographed front stages
+Chose: the page POSTs to the real API and polls /events/{id}/detail for real status and the real attempt log; the sub-second front stages (submit -> api -> queue) are animated for visibility, everything after is driven by real polling. Rejected: a fully faked animation; a purely status-text page.
+Why: the outcome and audit log are 100% real (it's the live system), but the early pipeline stages happen in milliseconds and would be invisible - animating them makes the architecture legible without faking the result. Honest data, choreographed presentation.
+
+### App restructured into a conventional FastAPI layout
+Chose: split main.py into config, schemas, security, metrics, and routers/ (events, health); main.py only creates the app and includes routers. Rejected: keeping everything in main.py.
+Why: main.py mixed unrelated concerns (models, schemas, auth, routes, metrics) - separating them by responsibility is the conventional, reviewable layout. worker.py was NOT split: it's one cohesive concern (the delivery engine), and splitting cohesive code across files hurts readability. Cohesion is a reason to keep code together; mixed concerns are a reason to separate.
+
+### Run app code from the image, not a host bind mount
+Chose: removed the .:/app volume mount from api/worker/beat so containers run the code baked into the image. Rejected: keeping the dev-style source mount in the production compose.
+Why: the point of building an image is that it's a tested, immutable artifact - "this exact code, verified, shipped." A source bind mount overrides that with whatever is on the host disk, so what runs may not match what was built and tested. Removing it makes the image the source of truth. Cost: every code deploy now needs --build (CI already does this). Static files stay bind-mounted into Caddy, since those benefit from live updates and aren't code.
+
+### Single source of truth for config
+Chose: RATE_LIMIT, the window, and MAX_PAYLOAD_BYTES live only in config.py; ratelimit.py and schemas.py import them. Rejected: redefining the same constants in multiple modules.
+Why: duplicated constants drift - change one, the other silently disagrees. One definition, imported everywhere, means a change applies consistently.
+
+### Test against a real Postgres (+ Redis in CI), tests gate deploy
+Chose: pytest with async fixtures against a real hookline_test Postgres database; per-test create/drop tables; FastAPI dependency-override for the DB session; mock outbound HTTP, DNS, and Celery dispatch. CI spins up Postgres + Redis, runs the suite, and deploy only runs if tests pass (needs: test). Rejected: SQLite (fakes JSONB/Postgres types); testing without CI gating.
+Why: the app uses JSONB and Postgres-specific behaviour, so a real Postgres test DB matches production; SQLite would test against different semantics. Async engines must be created inside each test's event loop (module-scope engines cause "attached to a different loop"). Mocking DNS/HTTP/Celery tests our logic, not the network. 
+
+### Comment convention: docstrings for "what", inline comments for non-obvious "why"
+Chose: module/function/class docstrings describe purpose; inline comments only where the reasoning isn't obvious from the code; deleted comments that restate the code. 
+Why: comments that restate the code are noise and drift out of date; the valuable comments explain intent and non-obvious decisions (the claim-before-enqueue, the SSRF fail-closed, the byte-vs-char measurement). Docstrings document the contract; why-comments fill the gaps.
