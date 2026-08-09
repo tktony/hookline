@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -63,13 +63,16 @@ async def get_event(id: UUID, session: Annotated[AsyncSession, Depends(get_sessi
     return event
 
 
-# TODO: pagination
 @router.get("/events", response_model=list[EventOut])
 async def list_events(
-    session: Annotated[AsyncSession, Depends(get_session)], status: str | None = None
+    session: Annotated[AsyncSession, Depends(get_session)],
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=100), # must be between 1-100
+    offset: int = Query(0, ge=0), # def=0, not 0<
 ):
     stmt = select(Event)
     if status is not None:
         stmt = stmt.where(Event.status == status)
+    stmt = stmt.order_by(Event.created_at.desc()).limit(limit).offset(offset)
     result = await session.execute(stmt)
     return result.scalars().all()
