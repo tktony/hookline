@@ -12,12 +12,12 @@ from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.models import DeliveryAttempt, Event
 
-BACKOFF_SCHEDULE = [ # shortened for demo, uncomment real values afterwards
-    5,                #60,     # 1 minute
-    10,               #300,    # 5 minutes
-    15,               #900,    # 15 minutes
-    20,               #1800,   # 30 minutes
-    30,               #3600,   # 60 minutes
+BACKOFF_SCHEDULE = [
+    60,     # 1 minute
+    300,    # 5 minutes
+    900,    # 15 minutes
+    1800,   # 30 minutes
+    3600,   # 60 minutes
 ]
 MAX_RESPONSE_BODY = 10_000  
 
